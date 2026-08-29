@@ -168,4 +168,4 @@ This project is licensed under the [MIT License](LICENSE), matching upstream [`r
 - [RecoLabs/gnata](https://github.com/recolabs/gnata): JSONata query and transformation engine in Go.
 - [JSONata](https://jsonata.org): Original reference language and test suite.
 - [dashjoin/jsonata-cli](https://github.com/dashjoin/jsonata-cli): Reference CLI specification and behavior.
-- Gemini wrote this.
+- Gemini wrote this but errors are mine.
