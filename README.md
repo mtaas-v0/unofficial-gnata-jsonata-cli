@@ -15,7 +15,7 @@ Download the binary matching your platform from GitHub Releases:
 ### Using Go
 
 ```bash
-go install github.com/recolabs/jsonata-cli@latest
+go install github.com/mtaas-v0/unofficial-gnata-jsonata-cli@latest
 ```
 
 ### Build from Source
@@ -23,8 +23,8 @@ go install github.com/recolabs/jsonata-cli@latest
 Requires Go 1.22+:
 
 ```bash
-git clone https://github.com/recolabs/jsonata-cli.git
-cd jsonata-cli
+git clone https://github.com/mtaas-v0/unofficial-gnata-jsonata-cli.git
+cd unofficial-gnata-jsonata-cli
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/jsonata .
 ```
 
