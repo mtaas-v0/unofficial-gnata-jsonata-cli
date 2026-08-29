@@ -1,4 +1,4 @@
-# unofficial-gnata-jsonata-cli/
+# unofficial-gnata-jsonata-cli
 
 Command-line interface for JSONata query and transformation expressions, written in Go and powered by the [`recolabs/gnata`](https://github.com/recolabs/gnata) engine. It is designed as a drop-in binary alternative to `dashjoin/jsonata-cli`.
 
@@ -57,10 +57,22 @@ Flags:
 jsonata "Account.Order[0].Price * 1.2" -f order.json
 ```
 
+output:
+
+```
+34.199999999999996
+```
+
 #### Case 2: Piped Data via Stdin
 
 ```bash
 cat order.json | jsonata "Account.Order.Price"
+```
+
+output:
+
+```
+[28.50,107.99]
 ```
 
 ```bash
