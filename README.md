@@ -1,6 +1,6 @@
 # unofficial-gnata-jsonata-cli
 
-Command-line interface for JSONata query and transformation expressions, written in Go and powered by the [`recolabs/gnata`](https://github.com/recolabs/gnata) engine. It is designed as a drop-in binary alternative to `dashjoin/jsonata-cli`.
+Command-line interface for JSONata query and transformation expressions, written in Go and powered by the [`recolabs/gnata`](https://github.com/recolabs/gnata) engine. It is designed as a drop-in binary alternative to [`dashjoin/jsonata-cli`](https://github.com/dashjoin/jsonata-cli).
 
 ## Installation
 
@@ -162,3 +162,10 @@ go run cmd/benchmark/main.go \
 ## License
 
 This project is licensed under the [MIT License](LICENSE), matching upstream [`recolabs/gnata`](https://github.com/recolabs/gnata).
+
+## Acknowledgements
+
+- [RecoLabs/gnata](https://github.com/recolabs/gnata): JSONata query and transformation engine in Go.
+- [JSONata](https://jsonata.org): Original reference language and test suite.
+- [dashjoin/jsonata-cli](https://github.com/dashjoin/jsonata-cli): Reference CLI specification and behavior.
+- Gemini wrote this.
