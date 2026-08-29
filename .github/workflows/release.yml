@@ -1,9 +1,13 @@
 name: Release
 
 on:
+  release:
+    types: 
+      - published
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -44,6 +48,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -57,6 +63,10 @@ jobs:
           BUILD_DATE=$(date -u +'%Y-%m-%d')
           echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
 
+          # Resolve Tag Name (works for Web UI release, git tag push, and manual run)
+          TAG_NAME="${{ github.event.release.tag_name || github.ref_name }}"
+          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
+
           # 1. Our repository commit (short 7-char hash)
           REPO_COMMIT="${GITHUB_SHA::7}"
           echo "repo_commit=${REPO_COMMIT}" >> $GITHUB_OUTPUT
@@ -66,15 +76,12 @@ jobs:
           echo "gnata_ver=${GNATA_VER}" >> $GITHUB_OUTPUT
 
           # 3. Upstream gnata commit SHA resolution
-          # Strategy A: Go 1.21+ Origin Hash
           GNATA_COMMIT=$(go list -m -f '{{with .Origin}}{{printf "%.7s" .Hash}}{{end}}' github.com/recolabs/gnata 2>/dev/null || echo "")
 
-          # Strategy B: Extract from pseudo-version (e.g. v0.0.0-20240901-abcdef123456)
           if [ -z "${GNATA_COMMIT}" ]; then
             GNATA_COMMIT=$(echo "${GNATA_VER}" | grep -oE '[a-f0-9]{12}$' | cut -c1-7 || echo "")
           fi
 
-          # Strategy C: Query git remote if tagged version
           if [ -z "${GNATA_COMMIT}" ] && [ "${GNATA_VER}" != "unknown" ]; then
             GNATA_COMMIT=$(git ls-remote https://github.com/recolabs/gnata.git "${GNATA_VER}" 2>/dev/null | awk '{print substr($1,1,7)}')
           fi
@@ -93,7 +100,7 @@ jobs:
           mkdir -p staging/ dist/
           go build -trimpath \
             -ldflags="-s -w \
-              -X 'main.Version=${{ github.ref_name }}' \
+              -X 'main.Version=${{ steps.meta.outputs.tag_name }}' \
               -X 'main.Commit=${{ steps.meta.outputs.repo_commit }}' \
               -X 'main.GnataVersion=${{ steps.meta.outputs.gnata_ver }}' \
               -X 'main.GnataCommit=${{ steps.meta.outputs.gnata_commit }}' \
@@ -102,7 +109,7 @@ jobs:
 
       - name: Package Archive (${{ matrix.archive_format }})
         run: |
-          ARCHIVE_NAME="jsonata_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          ARCHIVE_NAME="jsonata_${{ steps.meta.outputs.tag_name }}_${{ matrix.goos }}_${{ matrix.goarch }}"
           
           if [ "${{ matrix.archive_format }}" = "zip" ]; then
             (cd staging && zip "../dist/${ARCHIVE_NAME}.zip" "${{ matrix.binary_name }}")
@@ -119,7 +126,7 @@ jobs:
           retention-days: 1
 
   release:
-    name: Create GitHub Release
+    name: Upload Release Assets
     needs: build
     runs-on: ubuntu-latest
 
@@ -140,9 +147,10 @@ jobs:
           sha256sum * > checksums.txt
           cat checksums.txt
 
-      - name: Create Release and Upload Assets
+      - name: Attach Assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
           files: |
             release-assets/*
           generate_release_notes: true
