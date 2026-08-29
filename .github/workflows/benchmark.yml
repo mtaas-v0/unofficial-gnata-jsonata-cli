@@ -1,0 +1,40 @@
+name: Benchmark & Official JSONata Test Suite
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  benchmark-official-suite:
+    name: Official Suite Benchmark (Ubuntu 22.04)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+
+      - name: Download Official JSONata Test Suite
+        run: |
+          git clone --depth 1 https://github.com/jsonata-js/jsonata.git /tmp/jsonata-upstream
+          echo "TEST_SUITE_PATH=/tmp/jsonata-upstream/test/test-suite" >> $GITHUB_ENV
+
+      - name: Compile Native Binary
+        run: |
+          mkdir -p bin/
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/jsonata .
+
+      - name: Run Benchmark and Generate Step Summary
+        run: |
+          go run cmd/benchmark/main.go \
+            -bin ./bin/jsonata \
+            -suite ${{ env.TEST_SUITE_PATH }} \
+            -summary $GITHUB_STEP_SUMMARY
+            

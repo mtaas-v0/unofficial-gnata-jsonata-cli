@@ -1,0 +1,123 @@
+name: Cross-Platform Build & Release Matrix
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Primary Target: Windows ARM64
+          - goos: windows
+            goarch: arm64
+            binary_name: jsonata.exe
+          # Secondary Targets
+          - goos: windows
+            goarch: amd64
+            binary_name: jsonata.exe
+          - goos: linux
+            goarch: arm64
+            binary_name: jsonata
+          - goos: linux
+            goarch: amd64
+            binary_name: jsonata
+          - goos: darwin
+            goarch: arm64
+            binary_name: jsonata
+          - goos: darwin
+            goarch: amd64
+            binary_name: jsonata
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+
+      - name: Download Go Dependencies
+        run: go mod download
+
+      - name: Resolve Build Metadata and Upstream gnata Version
+        id: meta
+        run: |
+          BUILD_DATE=$(date -u +'%Y%m%d-%H%M%S')
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          
+          GNATA_VERSION=$(go list -m -f '{{.Version}}' github.com/recolabs/gnata 2>/dev/null || echo "unknown")
+          GNATA_CLEAN=$(echo "${GNATA_VERSION}" | tr -cd '[:alnum:]._-')
+          echo "gnata_version=${GNATA_CLEAN}" >> $GITHUB_OUTPUT
+          
+          CLI_VERSION=${{ github.ref_name }}
+          if [ "${{ github.ref_type }}" != "tag" ]; then
+            CLI_VERSION="dev-${{ github.sha }}"
+          fi
+          echo "cli_version=${CLI_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Compile Binary (CGO_ENABLED=0)
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p bin/
+          go build -trimpath \
+            -ldflags="-s -w \
+              -X 'main.Version=${{ steps.meta.outputs.cli_version }}' \
+              -X 'main.Commit=${{ github.sha }}' \
+              -X 'main.BuildDate=${{ steps.meta.outputs.build_date }}'" \
+            -o bin/${{ matrix.binary_name }} .
+
+      # --- TESTS START ---
+      - name: Run Go Unit Tests
+        run: go test -v -race ./...
+
+      - name: Run Binary Smoke Test (Native linux/amd64 only)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          echo "=== Testing --version flag ==="
+          ./bin/${{ matrix.binary_name }} --version
+
+          echo "=== Testing Case 1: Inline expression with data file ==="
+          echo '{"user": {"name": "Alice"}}' > test_sample.json
+          RESULT=$(./bin/${{ matrix.binary_name }} "user.name" -f test_sample.json)
+          [ "$RESULT" = '"Alice"' ] || (echo "Test Failed!" && exit 1)
+
+          echo "=== Testing Case 2: Stdin data pipe ==="
+          RESULT=$(echo '{"num": 42}' | ./bin/${{ matrix.binary_name }} "num")
+          [ "$RESULT" = '42' ] || (echo "Test Failed!" && exit 1)
+
+          echo "=== Testing Case 3: Expression from stdin with data file ==="
+          echo 'user.name' > transform.jsonata
+          RESULT=$(./bin/${{ matrix.binary_name }} -f test_sample.json < transform.jsonata)
+          [ "$RESULT" = '"Alice"' ] || (echo "Test Failed!" && exit 1)
+
+          rm -f test_sample.json transform.jsonata
+
+      - name: Verify Cross-Compiled Binary Exists and Is Non-Empty
+        run: |
+          FILE_PATH="bin/${{ matrix.binary_name }}"
+          if [ ! -s "$FILE_PATH" ]; then
+            echo "Error: Binary $FILE_PATH is missing or empty"
+            exit 1
+          fi
+      # --- TESTS END ---
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jsonata_run${{ github.run_number }}_${{ steps.meta.outputs.build_date }}_gnata-${{ steps.meta.outputs.gnata_version }}_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: bin/${{ matrix.binary_name }}
+          if-no-files-found: error
+          retention-days: 14
