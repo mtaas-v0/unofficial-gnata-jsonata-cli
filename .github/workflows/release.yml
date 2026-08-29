@@ -1,0 +1,150 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - goos: windows
+            goarch: arm64
+            binary_name: jsonata.exe
+            archive_format: zip
+          - goos: windows
+            goarch: amd64
+            binary_name: jsonata.exe
+            archive_format: zip
+          - goos: linux
+            goarch: amd64
+            binary_name: jsonata
+            archive_format: tar.gz
+          - goos: linux
+            goarch: arm64
+            binary_name: jsonata
+            archive_format: tar.gz
+          - goos: darwin
+            goarch: arm64
+            binary_name: jsonata
+            archive_format: tar.gz
+          - goos: darwin
+            goarch: amd64
+            binary_name: jsonata
+            archive_format: tar.gz
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+
+      - name: Resolve Commit Hashes and Version Metadata
+        id: meta
+        run: |
+          BUILD_DATE=$(date -u +'%Y-%m-%d')
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+
+          # 1. Our repository commit (short 7-char hash)
+          REPO_COMMIT="${GITHUB_SHA::7}"
+          echo "repo_commit=${REPO_COMMIT}" >> $GITHUB_OUTPUT
+
+          # 2. Upstream gnata version string from go.mod
+          GNATA_VER=$(go list -m -f '{{.Version}}' github.com/recolabs/gnata 2>/dev/null || echo "unknown")
+          echo "gnata_ver=${GNATA_VER}" >> $GITHUB_OUTPUT
+
+          # 3. Upstream gnata commit SHA resolution
+          # Strategy A: Go 1.21+ Origin Hash
+          GNATA_COMMIT=$(go list -m -f '{{with .Origin}}{{printf "%.7s" .Hash}}{{end}}' github.com/recolabs/gnata 2>/dev/null || echo "")
+
+          # Strategy B: Extract from pseudo-version (e.g. v0.0.0-20240901-abcdef123456)
+          if [ -z "${GNATA_COMMIT}" ]; then
+            GNATA_COMMIT=$(echo "${GNATA_VER}" | grep -oE '[a-f0-9]{12}$' | cut -c1-7 || echo "")
+          fi
+
+          # Strategy C: Query git remote if tagged version
+          if [ -z "${GNATA_COMMIT}" ] && [ "${GNATA_VER}" != "unknown" ]; then
+            GNATA_COMMIT=$(git ls-remote https://github.com/recolabs/gnata.git "${GNATA_VER}" 2>/dev/null | awk '{print substr($1,1,7)}')
+          fi
+
+          if [ -z "${GNATA_COMMIT}" ]; then
+            GNATA_COMMIT="unknown"
+          fi
+          echo "gnata_commit=${GNATA_COMMIT}" >> $GITHUB_OUTPUT
+
+      - name: Compile Binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p staging/ dist/
+          go build -trimpath \
+            -ldflags="-s -w \
+              -X 'main.Version=${{ github.ref_name }}' \
+              -X 'main.Commit=${{ steps.meta.outputs.repo_commit }}' \
+              -X 'main.GnataVersion=${{ steps.meta.outputs.gnata_ver }}' \
+              -X 'main.GnataCommit=${{ steps.meta.outputs.gnata_commit }}' \
+              -X 'main.BuildDate=${{ steps.meta.outputs.build_date }}'" \
+            -o "staging/${{ matrix.binary_name }}" .
+
+      - name: Package Archive (${{ matrix.archive_format }})
+        run: |
+          ARCHIVE_NAME="jsonata_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          
+          if [ "${{ matrix.archive_format }}" = "zip" ]; then
+            (cd staging && zip "../dist/${ARCHIVE_NAME}.zip" "${{ matrix.binary_name }}")
+          else
+            tar -czvf "dist/${ARCHIVE_NAME}.tar.gz" -C staging "${{ matrix.binary_name }}"
+          fi
+
+      - name: Upload Packaged Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download All Archives
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: archive-*
+          merge-multiple: true
+
+      - name: Generate Checksums
+        run: |
+          cd release-assets
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
