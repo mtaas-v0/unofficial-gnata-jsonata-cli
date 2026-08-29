@@ -13,33 +13,60 @@ import (
 	"github.com/recolabs/gnata"
 )
 
+// Injected at build time via -ldflags
 var (
-	Version      = "dev"
-	Commit       = "none"
-	GnataVersion = ""
-	BuildDate    = "unknown"
+	Version      = "dev"     // Our repo tag or "dev"
+	Commit       = "none"    // Our repo git commit SHA
+	GnataVersion = ""        // Upstream gnata module version
+	GnataCommit  = ""        // Upstream gnata git commit SHA
+	BuildDate    = "unknown" // Build timestamp
 )
 
-func getGnataVersion() string {
-	if GnataVersion != "" {
-		return GnataVersion
-	}
-	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, dep := range info.Deps {
-			if dep.Path == "github.com/recolabs/gnata" {
-				if dep.Replace != nil {
-					return dep.Replace.Version
+func getGnataMetadata() (version, commit string) {
+	version = GnataVersion
+	commit = GnataCommit
+
+	// Runtime fallback via Go buildinfo if not injected via ldflags
+	if version == "" || commit == "" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			for _, dep := range info.Deps {
+				if dep.Path == "github.com/recolabs/gnata" {
+					if version == "" {
+						if dep.Replace != nil {
+							version = dep.Replace.Version
+						} else {
+							version = dep.Version
+						}
+					}
+					if commit == "" {
+						// Extract commit from pseudo-version (e.g., v0.0.0-20240820120000-abcdef123456)
+						parts := strings.Split(version, "-")
+						if len(parts) >= 3 {
+							hash := parts[len(parts)-1]
+							if len(hash) >= 7 {
+								commit = hash[:7]
+							}
+						}
+					}
+					break
 				}
-				return dep.Version
 			}
 		}
 	}
-	return "unknown"
+
+	if version == "" {
+		version = "unknown"
+	}
+	if commit == "" {
+		commit = "unknown"
+	}
+	return version, commit
 }
 
 func printVersion(w io.Writer) {
-	fmt.Fprintf(w, "jsonata version %s (commit: %s, gnata: %s, built: %s)\n",
-		Version, Commit, getGnataVersion(), BuildDate)
+	gnataVer, gnataCommit := getGnataMetadata()
+	fmt.Fprintf(w, "jsonata version %s (commit: %s, gnata-version: %s, gnata-commit: %s, built: %s)\n",
+		Version, Commit, gnataVer, gnataCommit, BuildDate)
 }
 
 type Options struct {
